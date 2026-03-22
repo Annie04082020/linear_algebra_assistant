@@ -102,6 +102,8 @@ const btnGenerate = document.getElementById("btn-generate");
 const inputsContainer = document.getElementById("matrix-inputs");
 const btnApply = document.getElementById("btn-apply");
 const btnHint = document.getElementById("btn-hint");
+const btnAutoRef = document.getElementById("btn-auto-ref");
+const btnAutoRref = document.getElementById("btn-auto-rref");
 const btnReset = document.getElementById("btn-reset");
 const btnClear = document.getElementById("btn-clear");
 const historyList = document.getElementById("history-list");
@@ -605,6 +607,124 @@ function handlePaste(e) {
                 }
             }
         }
+    }
+}
+
+// Auto Reduction Engine
+btnAutoRef.addEventListener('click', () => {
+    autoReduceMatrix(false);
+});
+
+btnAutoRref.addEventListener('click', () => {
+    autoReduceMatrix(true);
+});
+
+function autoReduceMatrix(toRref) {
+    let matrix = getCurrentMatrix();
+    if (!matrix) return;
+
+    if (historyStates.length === 0) {
+        initialMatrixState = matrix.map(row => [...row]);
+    }
+
+    let newMatrix = matrix.map(row => [...row]);
+    let stepsTaken = 0;
+    
+    let k = 0; // current active row pivot
+    
+    // Forward elimination
+    for (let j = 0; j < matrixCols; j++) {
+        if (k >= matrixRows) break;
+        
+        let pivotRow = k;
+        let foundPivot = false;
+        for (let i = k; i < matrixRows; i++) {
+            if (!newMatrix[i][j].isZero()) {
+                pivotRow = i;
+                foundPivot = true;
+                break;
+            }
+        }
+        
+        if (foundPivot) {
+            // Swap if necessary
+            if (pivotRow !== k) {
+                let temp = newMatrix[k];
+                newMatrix[k] = newMatrix[pivotRow];
+                newMatrix[pivotRow] = temp;
+                let op = { type: 'swap', r1: k + 1, r2: pivotRow + 1 };
+                addHistory(opToMath(op), newMatrix.map(row => [...row]));
+                stepsTaken++;
+            }
+            
+            // Normalize pivot to 1
+            if (!newMatrix[k][j].equals(new Fraction(1, 1))) {
+                let factor = new Fraction(1, 1).div(newMatrix[k][j]);
+                for (let c = 0; c < matrixCols; c++) {
+                    newMatrix[k][c] = newMatrix[k][c].mult(factor);
+                }
+                let op = { type: 'multiply', r: k + 1, scalar: factor };
+                addHistory(opToMath(op), newMatrix.map(row => [...row]));
+                stepsTaken++;
+            }
+            
+            // Eliminate below
+            for (let i = k + 1; i < matrixRows; i++) {
+                if (!newMatrix[i][j].isZero()) {
+                    let factor = newMatrix[i][j].mult(new Fraction(-1, 1));
+                    for (let c = 0; c < matrixCols; c++) {
+                        let addition = newMatrix[k][c].mult(factor);
+                        newMatrix[i][c] = newMatrix[i][c].add(addition);
+                    }
+                    let op = { type: 'add', rTarget: i + 1, rSource: k + 1, scalar: factor };
+                    addHistory(opToMath(op), newMatrix.map(row => [...row]));
+                    stepsTaken++;
+                }
+            }
+            k++;
+        }
+    }
+    
+    // Back substitution
+    if (toRref) {
+        k = 0;
+        for (let j = 0; j < matrixCols; j++) {
+            if (k >= matrixRows) break;
+            
+            if (newMatrix[k][j].equals(new Fraction(1, 1))) {
+                let isZeroLeftOfPivot = true;
+                for (let c = 0; c < j; c++) {
+                    if (!newMatrix[k][c].isZero()) isZeroLeftOfPivot = false;
+                }
+
+                if (isZeroLeftOfPivot) {
+                    for (let i = 0; i < k; i++) {
+                        if (!newMatrix[i][j].isZero()) {
+                            let factor = newMatrix[i][j].mult(new Fraction(-1, 1));
+                            for (let c = 0; c < matrixCols; c++) {
+                                let addition = newMatrix[k][c].mult(factor);
+                                newMatrix[i][c] = newMatrix[i][c].add(addition);
+                            }
+                            let op = { type: 'add', rTarget: i + 1, rSource: k + 1, scalar: factor };
+                            addHistory(opToMath(op), newMatrix.map(row => [...row]));
+                            stepsTaken++;
+                        }
+                    }
+                    k++;
+                } else {
+                    k++;
+                }
+            } else if (!newMatrix[k][j].isZero()) {
+                k++;
+            }
+        }
+    }
+
+    if (stepsTaken === 0) {
+        alert("The matrix is already in the target form!");
+    } else {
+        setMatrixToUI(newMatrix);
+        hideHint();
     }
 }
 
