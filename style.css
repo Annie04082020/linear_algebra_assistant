@@ -23,6 +23,10 @@
     padding: 0;
 }
 
+.hidden {
+    display: none !important;
+}
+
 body {
     font-family: 'Outfit', sans-serif;
     background-color: var(--bg-color);
@@ -89,6 +93,37 @@ header h1 {
 header p {
     color: var(--text-muted);
     font-size: 1.1rem;
+}
+
+/* Tabs */
+.tabs {
+    display: flex;
+    gap: 0.5rem;
+    margin-bottom: 0.5rem;
+    border-bottom: 1px solid var(--panel-border);
+    padding-bottom: 0.5rem;
+}
+
+.tab-btn {
+    background: transparent;
+    border: none;
+    color: var(--text-muted);
+    font-size: 1rem;
+    font-weight: 600;
+    padding: 0.5rem 1rem;
+    border-radius: 8px;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.tab-btn:hover {
+    color: var(--text-main);
+    background: rgba(255, 255, 255, 0.05);
+}
+
+.tab-btn.active {
+    color: var(--primary);
+    background: rgba(59, 130, 246, 0.1);
 }
 
 .main-grid {
@@ -208,6 +243,49 @@ input:focus {
     position: relative;
 }
 
+.matrix-grid.split-mode {
+    gap: 0; /* Gaps are replaced by divider tracks */
+}
+
+/* Split Matrix Dividers */
+.col-divider {
+    width: 100%;
+    height: 100%;
+    background-color: transparent;
+    cursor: col-resize;
+    transition: background-color 0.15s;
+    border-radius: 2px;
+    z-index: 2;
+}
+.col-divider:hover {
+    background-color: rgba(255, 255, 255, 0.15);
+}
+.col-divider.active {
+    background-color: var(--highlight);
+}
+
+.row-divider {
+    width: 100%;
+    height: 100%;
+    background-color: transparent;
+    cursor: row-resize;
+    transition: background-color 0.15s;
+    border-radius: 2px;
+    z-index: 2;
+}
+.row-divider:hover {
+    background-color: rgba(255, 255, 255, 0.15);
+}
+.row-divider.active {
+    background-color: var(--highlight);
+}
+
+.intersection {
+    width: 100%;
+    height: 100%;
+    background-color: transparent;
+}
+
 /* Matrix brackets using pseudo-elements */
 .matrix-grid::before,
 .matrix-grid::after {
@@ -229,6 +307,13 @@ input:focus {
     right: 0;
     border-left: none;
     border-radius: 0 6px 6px 0;
+}
+
+.matrix-divider {
+    width: 2px;
+    background-color: var(--panel-border);
+    border-radius: 1px;
+    margin: 0 0.25rem;
 }
 
 .matrix-cell-container {

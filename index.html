@@ -18,26 +18,74 @@
             <p>Step-by-step row reduction with precise fractional arithmetic.</p>
         </header>
 
+        <nav class="tabs">
+            <button class="tab-btn active" data-mode="row_reduction">Row Reduction</button>
+            <button class="tab-btn" data-mode="inverse">Inverse Matrix</button>
+            <button class="tab-btn" data-mode="lu">LU Decomposition</button>
+            <button class="tab-btn" data-mode="operations">Matrix Operations</button>
+        </nav>
+
         <div class="main-grid">
             <!-- Left Panel: Matrix Setup & Input -->
             <div class="panel matrix-panel">
                 <h2>Matrix Setup</h2>
-                <div class="dimension-controls">
-                    <div class="input-group">
-                        <label for="rows">Rows (m)</label>
-                        <input type="number" id="rows" min="1" max="10" value="3">
+                <div class="dimension-controls-wrapper" style="display: flex; flex-direction: column; gap: 1rem;">
+                    <!-- Row Reduction dimensions -->
+                    <div class="dimension-controls" id="dim-controls-default">
+                        <div class="input-group">
+                            <label for="rows">Rows (m)</label>
+                            <input type="number" id="rows" min="1" max="10" value="3">
+                        </div>
+                        <div class="input-group">
+                            <label for="cols">Cols (n)</label>
+                            <input type="number" id="cols" min="1" max="10" value="4">
+                        </div>
                     </div>
-                    <div class="input-group">
-                        <label for="cols">Cols (n)</label>
-                        <input type="number" id="cols" min="1" max="10" value="4">
+                    
+                    <!-- Square dimensions (Inverse & LU) -->
+                    <div class="dimension-controls hidden" id="dim-controls-square">
+                        <div class="input-group">
+                            <label for="square-n">Size (n x n)</label>
+                            <input type="number" id="square-n" min="1" max="10" value="3">
+                        </div>
                     </div>
-                    <button id="btn-generate" class="btn primary">Generate</button>
+
+                    <!-- Operations (Dual Matrix) -->
+                    <div class="dimension-controls hidden" id="dim-controls-operations">
+                        <div style="display: flex; gap: 1rem; align-items: flex-end;">
+                            <div style="flex: 1;">
+                                <div style="font-weight: 600; font-size: 0.9rem; margin-bottom: 0.5rem; color: var(--text-main);">Matrix A</div>
+                                <div style="display: flex; gap: 0.5rem;">
+                                    <input type="number" id="op-a-rows" min="1" max="10" value="2" style="width: 100%;">
+                                    <span style="align-self: center;">&times;</span>
+                                    <input type="number" id="op-a-cols" min="1" max="10" value="2" style="width: 100%;">
+                                </div>
+                            </div>
+                            <div style="flex: 1;">
+                                <div style="font-weight: 600; font-size: 0.9rem; margin-bottom: 0.5rem; color: var(--text-main);">Matrix B</div>
+                                <div style="display: flex; gap: 0.5rem;">
+                                    <input type="number" id="op-b-rows" min="1" max="10" value="2" style="width: 100%;">
+                                    <span style="align-self: center;">&times;</span>
+                                    <input type="number" id="op-b-cols" min="1" max="10" value="2" style="width: 100%;">
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <button id="btn-generate" class="btn primary" style="width: 100%;">Generate Matrix</button>
                 </div>
 
-                <div class="matrix-container-wrapper">
+                <div id="single-matrix-container" class="matrix-container-wrapper">
                     <div id="matrix-inputs" class="matrix-grid">
                         <!-- Dynamic inputs will be generated here -->
                     </div>
+                </div>
+                
+                <div id="dual-matrix-container" class="hidden" style="display: flex; flex-direction: column; gap: 1rem; overflow: auto; align-items: center; padding: 1rem 0;">
+                    <div style="text-align: center; color: var(--text-muted); font-size: 0.9rem;">Matrix A</div>
+                    <div id="matrix-a-inputs" class="matrix-grid"></div>
+                    <div style="text-align: center; color: var(--text-muted); font-size: 0.9rem; margin-top: 1rem;">Matrix B</div>
+                    <div id="matrix-b-inputs" class="matrix-grid"></div>
                 </div>
             </div>
 
@@ -47,16 +95,38 @@
                 
                 <div class="actions" style="display: flex; flex-direction: column; gap: 0.5rem; margin: 0;">
                     <div style="display: flex; gap: 0.5rem;">
-                        <button id="btn-apply" class="btn success" style="flex: 1; padding: 0.5rem 0; font-size: 0.95rem;">Apply</button>
-                        <button id="btn-hint" class="btn highlight" style="flex: 1; padding: 0.5rem 0; font-size: 0.95rem;">💡 Hint</button>
-                    </div>
-                    <div style="display: flex; gap: 0.5rem;">
-                        <button id="btn-auto-ref" class="btn primary" style="flex: 1; padding: 0.5rem 0; font-size: 0.95rem;">Auto REF</button>
-                        <button id="btn-auto-rref" class="btn primary" style="flex: 1; padding: 0.5rem 0; font-size: 0.95rem;">Auto RREF</button>
-                    </div>
-                    <div style="display: flex; gap: 0.5rem;">
                         <button id="btn-reset" class="btn outline" style="flex: 1; border: 1px solid var(--highlight); color: var(--highlight); background: transparent; padding: 0.5rem 0; font-size: 0.95rem;">Reset</button>
                         <button id="btn-clear" class="btn danger outline" style="flex: 1; padding: 0.5rem 0; font-size: 0.95rem;">Clear</button>
+                    </div>
+                    
+                    <div id="actions-row-reduction" style="display: flex; flex-direction: column; gap: 0.5rem;">
+                        <div style="display: flex; gap: 0.5rem;">
+                            <button id="btn-apply" class="btn success" style="flex: 1; padding: 0.5rem 0; font-size: 0.95rem;">Apply</button>
+                            <button id="btn-hint" class="btn highlight" style="flex: 1; padding: 0.5rem 0; font-size: 0.95rem;">💡 Hint</button>
+                        </div>
+                        <div style="display: flex; gap: 0.5rem;">
+                            <button id="btn-auto-ref" class="btn primary" style="flex: 1; padding: 0.5rem 0; font-size: 0.95rem;">Auto REF</button>
+                            <button id="btn-auto-rref" class="btn primary" style="flex: 1; padding: 0.5rem 0; font-size: 0.95rem;">Auto RREF</button>
+                        </div>
+                    </div>
+
+                    <div id="actions-lu" class="hidden" style="display: flex; flex-direction: column; gap: 0.5rem;">
+                        <button id="btn-auto-lu" class="btn primary" style="width: 100%; padding: 0.5rem 0; font-size: 0.95rem;">Calculate LU Step-by-Step</button>
+                    </div>
+
+                    <div id="actions-operations" class="hidden" style="display: flex; flex-direction: column; gap: 0.5rem;">
+                        <div style="display: flex; align-items: center; justify-content: space-between; padding: 0.5rem; background: rgba(0,0,0,0.2); border-radius: 6px; margin-bottom: 0.5rem;">
+                            <label for="toggle-block-mode" style="font-size: 0.9rem; cursor: pointer;">Enable Block Mode</label>
+                            <input type="checkbox" id="toggle-block-mode" style="width: auto; cursor: pointer;">
+                        </div>
+                        <div id="block-mode-hint" class="hidden" style="color: var(--highlight); font-size: 0.85rem; margin-bottom: 0.5rem; line-height: 1.3;">
+                            點擊或拖曳矩陣空隙來切分區塊。進行乘法時系統將自動檢核並展示區塊計算過程！
+                        </div>
+                        <div style="display: flex; gap: 0.5rem;">
+                            <button id="btn-op-add" class="btn primary" style="flex: 1; padding: 0.5rem 0; font-size: 0.95rem;">A + B</button>
+                            <button id="btn-op-sub" class="btn primary" style="flex: 1; padding: 0.5rem 0; font-size: 0.95rem;">A - B</button>
+                        </div>
+                        <button id="btn-op-mul" class="btn success" style="width: 100%; padding: 0.5rem 0; font-size: 0.95rem;">A × B</button>
                     </div>
                 </div>
 

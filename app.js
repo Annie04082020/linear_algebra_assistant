@@ -96,6 +96,29 @@ let matrixRows = 3;
 let matrixCols = 4;
 let historyStates = [];
 let initialMatrixState = null;
+let currentMode = 'row_reduction'; // Modes: row_reduction, inverse, lu, split
+let rowSplits = new Set();
+let colSplits = new Set();
+let rowSplitsA = new Set();
+let colSplitsA = new Set();
+let rowSplitsB = new Set();
+let colSplitsB = new Set();
+let matrixARows = 2, matrixACols = 2;
+let matrixBRows = 2, matrixBCols = 2;
+
+let isDraggingSplit = false;
+let draggedSplitType = null;
+let draggedSplitIndex = null;
+let dragStartedOnActive = false;
+let didDragMove = false;
+
+document.addEventListener('mouseup', () => {
+    if (isDraggingSplit) {
+        isDraggingSplit = false;
+        draggedSplitType = null;
+        draggedSplitIndex = null;
+    }
+});
 
 // DOM Elements
 const btnGenerate = document.getElementById("btn-generate");
@@ -109,11 +132,44 @@ const btnClear = document.getElementById("btn-clear");
 const historyList = document.getElementById("history-list");
 const hintDisplay = document.getElementById("hint-display");
 const hintText = document.getElementById("hint-text");
+const btnAutoLu = document.getElementById("btn-auto-lu");
+
+// Operations DOM Elements
+const dimControlsOperations = document.getElementById("dim-controls-operations");
+const singleMatrixContainer = document.getElementById("single-matrix-container");
+const dualMatrixContainer = document.getElementById("dual-matrix-container");
+const actionsOperations = document.getElementById("actions-operations");
+const toggleBlockMode = document.getElementById("toggle-block-mode");
+const blockModeHint = document.getElementById("block-mode-hint");
+const btnOpAdd = document.getElementById("btn-op-add");
+const btnOpSub = document.getElementById("btn-op-sub");
+const btnOpMul = document.getElementById("btn-op-mul");
 
 // Initialize application
 document.addEventListener("DOMContentLoaded", () => {
+    setupTabs();
     generateGrid();
     setupOperationInputs();
+    
+    // Matrix operations buttons
+    document.getElementById('btn-op-add').addEventListener('click', () => {
+        if (toggleBlockMode.checked) executeStandardOperation('add');
+        else executeStandardOperation('add');
+    });
+    document.getElementById('btn-op-sub').addEventListener('click', () => {
+        if (toggleBlockMode.checked) executeStandardOperation('sub');
+        else executeStandardOperation('sub');
+    });
+    document.getElementById('btn-op-mul').addEventListener('click', () => {
+        if (toggleBlockMode.checked) executeBlockOperation('mul');
+        else executeStandardOperation('mul');
+    });
+    
+    document.getElementById("op-a-rows").addEventListener("change", generateGrid);
+    document.getElementById("op-a-cols").addEventListener("change", generateGrid);
+    document.getElementById("op-b-rows").addEventListener("change", generateGrid);
+    document.getElementById("op-b-cols").addEventListener("change", generateGrid);
+    toggleBlockMode.addEventListener("change", generateGrid);
     
     // Render initial static math formulas in UI
     if (window.renderMathInElement) {
@@ -125,6 +181,59 @@ document.addEventListener("DOMContentLoaded", () => {
         });
     }
 });
+
+function setupTabs() {
+    document.querySelectorAll('.tab-btn').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+            document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+            e.target.classList.add('active');
+            currentMode = e.target.dataset.mode;
+            updateUIMode();
+        });
+    });
+}
+
+function updateUIMode() {
+    // Hide all dimension controls and actions
+    document.getElementById('dim-controls-default').classList.add('hidden');
+    document.getElementById('dim-controls-square').classList.add('hidden');
+    dimControlsOperations.classList.add('hidden');
+    
+    document.getElementById('actions-row-reduction').classList.add('hidden');
+    document.getElementById('actions-lu').classList.add('hidden');
+    actionsOperations.classList.add('hidden');
+    
+    document.getElementById('btn-add-op').classList.add('hidden');
+    document.getElementById('operations-list').classList.add('hidden');
+    
+    singleMatrixContainer.classList.add('hidden');
+    dualMatrixContainer.classList.add('hidden');
+    
+    if (currentMode === 'row_reduction') {
+        document.getElementById('dim-controls-default').classList.remove('hidden');
+        document.getElementById('actions-row-reduction').classList.remove('hidden');
+        document.getElementById('btn-add-op').classList.remove('hidden');
+        document.getElementById('operations-list').classList.remove('hidden');
+        singleMatrixContainer.classList.remove('hidden');
+    } else if (currentMode === 'inverse') {
+        document.getElementById('dim-controls-square').classList.remove('hidden');
+        document.getElementById('actions-row-reduction').classList.remove('hidden');
+        document.getElementById('btn-add-op').classList.remove('hidden');
+        document.getElementById('operations-list').classList.remove('hidden');
+        singleMatrixContainer.classList.remove('hidden');
+    } else if (currentMode === 'lu') {
+        document.getElementById('dim-controls-square').classList.remove('hidden');
+        document.getElementById('actions-lu').classList.remove('hidden');
+        singleMatrixContainer.classList.remove('hidden');
+    } else if (currentMode === 'operations') {
+        dimControlsOperations.classList.remove('hidden');
+        actionsOperations.classList.remove('hidden');
+        dualMatrixContainer.classList.remove('hidden');
+        // Hide general operations clear/reset if needed, but we keep them
+    }
+    
+    generateGrid();
+}
 
 // Math parser logic
 function parseOperation(rawStr) {
@@ -280,8 +389,47 @@ function setupOperationInputs() {
 }
 
 function generateGrid() {
-    matrixRows = parseInt(document.getElementById("rows").value, 10);
-    matrixCols = parseInt(document.getElementById("cols").value, 10);
+    if (currentMode === 'operations') {
+        matrixARows = parseInt(document.getElementById("op-a-rows").value, 10);
+        matrixACols = parseInt(document.getElementById("op-a-cols").value, 10);
+        matrixBRows = parseInt(document.getElementById("op-b-rows").value, 10);
+        matrixBCols = parseInt(document.getElementById("op-b-cols").value, 10);
+        
+        if (matrixARows < 1 || matrixACols < 1 || matrixBRows < 1 || matrixBCols < 1) {
+            alert("Dimensions must be positive.");
+            return;
+        }
+
+        let blockMode = toggleBlockMode.checked;
+        if (!blockMode) {
+            rowSplitsA.clear(); colSplitsA.clear();
+            rowSplitsB.clear(); colSplitsB.clear();
+            blockModeHint.classList.add('hidden');
+        } else {
+            blockModeHint.classList.remove('hidden');
+        }
+        
+        buildGridDOM(document.getElementById('matrix-a-inputs'), matrixARows, matrixACols, false, blockMode, rowSplitsA, colSplitsA);
+        buildGridDOM(document.getElementById('matrix-b-inputs'), matrixBRows, matrixBCols, false, blockMode, rowSplitsB, colSplitsB);
+        
+        historyStates = [];
+        renderHistory();
+        return;
+    }
+
+    if (currentMode === 'row_reduction') {
+        matrixRows = parseInt(document.getElementById("rows").value, 10);
+        matrixCols = parseInt(document.getElementById("cols").value, 10);
+    } else if (currentMode === 'inverse') {
+        let n = parseInt(document.getElementById("square-n").value, 10);
+        matrixRows = n;
+        matrixCols = 2 * n;
+        colSplits.clear(); // no interactive splits for inverse
+    } else if (currentMode === 'lu') {
+        let n = parseInt(document.getElementById("square-n").value, 10);
+        matrixRows = n;
+        matrixCols = n;
+    }
     
     const mainGrid = document.querySelector('.main-grid');
     if (matrixCols >= 7) {
@@ -295,15 +443,47 @@ function generateGrid() {
         return;
     }
 
-    inputsContainer.style.gridTemplateColumns = `repeat(${matrixCols}, minmax(60px, auto))`;
-    inputsContainer.innerHTML = "";
+    // No interactive split dividers for any single-matrix mode
+    let allowSplit = false;
+    buildGridDOM(inputsContainer, matrixRows, matrixCols, currentMode === 'inverse', allowSplit, rowSplits, colSplits);
+    
+    historyStates = [];
+    initialMatrixState = null;
+    renderHistory();
+    hideHint();
+}
 
-    for (let r = 0; r < matrixRows; r++) {
-        for (let c = 0; c < matrixCols; c++) {
-            let container = document.createElement("div");
-            container.className = "matrix-cell-container";
-            container.dataset.r = r;
-            container.dataset.c = c;
+function buildGridDOM(container, rows, cols, isInverseMode, allowSplit, rSplits, cSplits) {
+    if (allowSplit) {
+        container.classList.add('split-mode');
+        
+        let colsTemplate = [];
+        for(let i=0; i<cols; i++) {
+            colsTemplate.push("minmax(60px, auto)");
+            if (i < cols - 1) colsTemplate.push("8px");
+        }
+        container.style.gridTemplateColumns = colsTemplate.join(" ");
+
+        let rowsTemplate = [];
+        for(let i=0; i<rows; i++) {
+            rowsTemplate.push("auto");
+            if (i < rows - 1) rowsTemplate.push("8px");
+        }
+        container.style.gridTemplateRows = rowsTemplate.join(" ");
+    } else {
+        container.classList.remove('split-mode');
+        container.style.gridTemplateColumns = `repeat(${cols}, minmax(60px, auto))`;
+        container.style.gridTemplateRows = "";
+    }
+    
+    container.innerHTML = "";
+
+    for (let r = 0; r < rows; r++) {
+        for (let c = 0; c < cols; c++) {
+            let cellContainer = document.createElement("div");
+            cellContainer.className = "matrix-cell-container";
+            cellContainer.dataset.r = r;
+            cellContainer.dataset.c = c;
 
             let display = document.createElement("div");
             display.className = "matrix-cell-display";
@@ -313,7 +493,21 @@ function generateGrid() {
             input.className = "matrix-cell matrix-cell-input";
             input.dataset.r = r;
             input.dataset.c = c;
-            input.value = "0";
+            
+            if (isInverseMode && c >= rows) {
+                let isDiagonal = (r === c - rows);
+                input.value = isDiagonal ? "1" : "0";
+                input.disabled = true;
+                cellContainer.style.background = "rgba(255, 255, 255, 0.05)";
+            } else {
+                input.value = "0";
+            }
+            // Static augmented matrix divider — not interactive
+            if (isInverseMode && c === rows - 1) {
+                cellContainer.style.borderRight = "2px solid var(--highlight)";
+                cellContainer.style.paddingRight = "0.5rem";
+                cellContainer.style.marginRight = "0.25rem";
+            }
             input.style.display = "none";
 
             const updateMath = () => {
@@ -326,7 +520,7 @@ function generateGrid() {
             };
             updateMath();
 
-            container.addEventListener("click", () => {
+            cellContainer.addEventListener("click", () => {
                 if (input.style.display === "none") {
                     display.style.display = "none";
                     input.style.display = "block";
@@ -344,16 +538,85 @@ function generateGrid() {
             input.addEventListener('keydown', handleKeyNavigation);
             input.addEventListener('paste', handlePaste);
 
-            container.appendChild(display);
-            container.appendChild(input);
-            inputsContainer.appendChild(container);
+            cellContainer.appendChild(display);
+            cellContainer.appendChild(input);
+            container.appendChild(cellContainer);
+            
+            if (allowSplit && c < cols - 1) {
+                let colDiv = document.createElement("div");
+                colDiv.className = "col-divider" + (cSplits.has(c) ? " active" : "");
+                colDiv.dataset.c = c;
+                setupDividerEvents(colDiv, 'col', rSplits, cSplits, container);
+                container.appendChild(colDiv);
+            }
+        }
+        
+        if (allowSplit && r < rows - 1) {
+            for (let c = 0; c < cols; c++) {
+                let rowDiv = document.createElement("div");
+                rowDiv.className = "row-divider" + (rSplits.has(r) ? " active" : "");
+                rowDiv.dataset.r = r;
+                setupDividerEvents(rowDiv, 'row', rSplits, cSplits, container);
+                container.appendChild(rowDiv);
+                
+                if (c < cols - 1) {
+                    let inter = document.createElement("div");
+                    inter.className = "intersection";
+                    container.appendChild(inter);
+                }
+            }
         }
     }
-    
-    historyStates = [];
-    initialMatrixState = null;
-    renderHistory();
-    hideHint();
+}
+
+function setupDividerEvents(div, type, rSplits, cSplits, container) {
+    div.addEventListener('mousedown', (e) => {
+        isDraggingSplit = true;
+        draggedSplitType = type;
+        draggedSplitIndex = parseInt(type === 'col' ? div.dataset.c : div.dataset.r, 10);
+        let splits = type === 'col' ? cSplits : rSplits;
+        dragStartedOnActive = splits.has(draggedSplitIndex);
+        didDragMove = false;
+        e.preventDefault(); // Prevent text selection
+    });
+
+    div.addEventListener('mouseenter', (e) => {
+        if (isDraggingSplit && draggedSplitType === type) {
+            let index = parseInt(type === 'col' ? div.dataset.c : div.dataset.r, 10);
+            if (index !== draggedSplitIndex) {
+                didDragMove = true;
+                let splits = type === 'col' ? cSplits : rSplits;
+                
+                splits.delete(draggedSplitIndex);
+                splits.add(index);
+                
+                container.querySelectorAll(`.${type}-divider`).forEach(d => {
+                    let dIdx = parseInt(type === 'col' ? d.dataset.c : d.dataset.r, 10);
+                    if (splits.has(dIdx)) {
+                        d.classList.add('active');
+                    } else {
+                        d.classList.remove('active');
+                    }
+                });
+                
+                draggedSplitIndex = index;
+            }
+        }
+    });
+
+    div.addEventListener('mouseup', (e) => {
+        if (isDraggingSplit && !didDragMove) {
+            let index = parseInt(type === 'col' ? div.dataset.c : div.dataset.r, 10);
+            let splits = type === 'col' ? cSplits : rSplits;
+            if (splits.has(index)) {
+                splits.delete(index);
+                div.classList.remove('active');
+            } else {
+                splits.add(index);
+                div.classList.add('active');
+            }
+        }
+    });
 }
 
 btnGenerate.addEventListener("click", () => {
@@ -374,10 +637,12 @@ btnReset.addEventListener("click", () => {
 });
 
 btnClear.addEventListener("click", () => {
-    const cells = document.querySelectorAll(".matrix-cell");
+    const cells = document.querySelectorAll(".matrix-cell-input");
     cells.forEach(c => {
-        c.value = "0";
-        c.dispatchEvent(new Event("blur"));
+        if (!c.disabled) {
+            c.value = "0";
+            c.dispatchEvent(new Event("blur"));
+        }
     });
     historyStates = [];
     initialMatrixState = null;
@@ -385,35 +650,43 @@ btnClear.addEventListener("click", () => {
     hideHint();
 });
 
-// Read current matrix state from inputs
-function getCurrentMatrix() {
+function getMatrixValues(containerId, rows, cols) {
     let m = [];
-    const inputs = document.querySelectorAll(".matrix-cell");
-    if (inputs.length !== matrixRows * matrixCols) return null; // Defensive check
-
+    const container = document.getElementById(containerId);
+    if (!container) return null;
+    
     try {
-        for (let r = 0; r < matrixRows; r++) {
+        for (let r = 0; r < rows; r++) {
             let rowObj = [];
-            for (let c = 0; c < matrixCols; c++) {
-                let val = inputs[r * matrixCols + c].value;
-                rowObj.push(Fraction.parse(val));
+            for (let c = 0; c < cols; c++) {
+                let input = container.querySelector(`.matrix-cell-input[data-r="${r}"][data-c="${c}"]`);
+                if (!input) return null;
+                rowObj.push(Fraction.parse(input.value));
             }
             m.push(rowObj);
         }
         return m;
     } catch (e) {
-        alert("Invalid input detected! Please enter valid numbers or fractions (e.g. 1/2).");
+        alert("Invalid input detected! Please enter valid numbers or fractions.");
         return null;
     }
 }
 
+function getCurrentMatrix() {
+    return getMatrixValues('matrix-inputs', matrixRows, matrixCols);
+}
+
 // Display matrix onto UI inputs
 function setMatrixToUI(m) {
-    const inputs = document.querySelectorAll(".matrix-cell");
+    const container = document.getElementById('matrix-inputs');
+    if (!container) return;
     for (let r = 0; r < matrixRows; r++) {
         for (let c = 0; c < matrixCols; c++) {
-            inputs[r * matrixCols + c].value = m[r][c].toString();
-            inputs[r * matrixCols + c].dispatchEvent(new Event("blur"));
+            let input = container.querySelector(`.matrix-cell-input[data-r="${r}"][data-c="${c}"]`);
+            if (input && !input.disabled) {
+                input.value = m[r][c].toString();
+                input.dispatchEvent(new Event("blur"));
+            }
         }
     }
 }
@@ -497,34 +770,103 @@ function renderHistory() {
         titleDiv.innerHTML = `<span>Step ${historyStates.length - idx}: ${state.desc}</span> <span class="toggle-icon">${idx === 0 ? '▼' : '▶'}</span>`;
         stepDiv.appendChild(titleDiv);
 
-        const matrixGrid = document.createElement('div');
-        matrixGrid.className = 'history-matrix';
-        matrixGrid.style.gridTemplateColumns = `repeat(${matrixCols}, minmax(45px, auto))`;
-        matrixGrid.style.justifyContent = 'center';
-        
-        if (idx !== 0) {
-            matrixGrid.style.display = 'none';
-        }
+        if (state.type === 'lu') {
+            const wrapper = document.createElement('div');
+            wrapper.style.display = idx === 0 ? 'flex' : 'none';
+            wrapper.style.gap = '1rem';
+            wrapper.style.justifyContent = 'center';
 
-        titleDiv.addEventListener('click', () => {
-            if (matrixGrid.style.display === 'none') {
-                matrixGrid.style.display = 'grid';
-                titleDiv.querySelector('.toggle-icon').innerText = '▼';
-            } else {
+            const lGrid = document.createElement('div');
+            lGrid.className = 'history-matrix';
+            lGrid.style.gridTemplateColumns = `repeat(${matrixCols}, minmax(45px, auto))`;
+            
+            const uGrid = document.createElement('div');
+            uGrid.className = 'history-matrix';
+            uGrid.style.gridTemplateColumns = `repeat(${matrixCols}, minmax(45px, auto))`;
+
+            for (let r = 0; r < matrixRows; r++) {
+                for (let c = 0; c < matrixCols; c++) {
+                    const lCell = document.createElement('div');
+                    lCell.innerHTML = `$ \\displaystyle ${state.L[r][c].toLatex()} $`;
+                    lGrid.appendChild(lCell);
+                    
+                    const uCell = document.createElement('div');
+                    uCell.innerHTML = `$ \\displaystyle ${state.U[r][c].toLatex()} $`;
+                    uGrid.appendChild(uCell);
+                }
+            }
+            
+            const lContainer = document.createElement('div');
+            lContainer.innerHTML = "<div style='text-align: center; color: var(--highlight); margin-bottom: 0.5rem;'>L</div>";
+            lContainer.appendChild(lGrid);
+            
+            const uContainer = document.createElement('div');
+            uContainer.innerHTML = "<div style='text-align: center; color: var(--success); margin-bottom: 0.5rem;'>U</div>";
+            uContainer.appendChild(uGrid);
+
+            wrapper.appendChild(lContainer);
+            wrapper.appendChild(uContainer);
+            
+            titleDiv.addEventListener('click', () => {
+                if (wrapper.style.display === 'none') {
+                    wrapper.style.display = 'flex';
+                    titleDiv.querySelector('.toggle-icon').innerText = '▼';
+                } else {
+                    wrapper.style.display = 'none';
+                    titleDiv.querySelector('.toggle-icon').innerText = '▶';
+                }
+            });
+            
+            stepDiv.appendChild(wrapper);
+        } else {
+            const mRows = state.matrix.length;
+            const mCols = state.matrix[0] ? state.matrix[0].length : 0;
+            
+            const matrixGrid = document.createElement('div');
+            matrixGrid.className = 'history-matrix';
+            matrixGrid.style.gridTemplateColumns = `repeat(${mCols}, minmax(45px, auto))`;
+            matrixGrid.style.justifyContent = 'center';
+            
+            if (idx !== 0) {
                 matrixGrid.style.display = 'none';
-                titleDiv.querySelector('.toggle-icon').innerText = '▶';
             }
-        });
 
-        for (let r = 0; r < matrixRows; r++) {
-            for (let c = 0; c < matrixCols; c++) {
-                const cell = document.createElement('div');
-                cell.innerHTML = `$ \\displaystyle ${state.matrix[r][c].toLatex()} $`;
-                matrixGrid.appendChild(cell);
+            titleDiv.addEventListener('click', () => {
+                if (matrixGrid.style.display === 'none') {
+                    matrixGrid.style.display = 'grid';
+                    titleDiv.querySelector('.toggle-icon').innerText = '▼';
+                } else {
+                    matrixGrid.style.display = 'none';
+                    titleDiv.querySelector('.toggle-icon').innerText = '▶';
+                }
+            });
+
+            let stateRowSplits = state.rowSplits || (currentMode === 'operations' ? new Set() : rowSplits);
+            let stateColSplits = state.colSplits || (currentMode === 'operations' ? new Set() : colSplits);
+
+            for (let r = 0; r < mRows; r++) {
+                for (let c = 0; c < mCols; c++) {
+                    const cell = document.createElement('div');
+                    cell.innerHTML = `$ \\displaystyle ${state.matrix[r][c].toLatex()} $`;
+                    
+                    if (stateColSplits.has(c)) {
+                        cell.style.borderRight = "2px solid var(--highlight)";
+                    }
+                    if (stateRowSplits.has(r)) {
+                        cell.style.borderBottom = "2px solid var(--highlight)";
+                    }
+                    // Static inverse mode divider in history
+                    if (currentMode === 'inverse' && c === matrixRows - 1) {
+                        cell.style.borderRight = "2px solid var(--highlight)";
+                        cell.style.paddingRight = "0.5rem";
+                    }
+
+                    matrixGrid.appendChild(cell);
+                }
             }
+
+            stepDiv.appendChild(matrixGrid);
         }
-
-        stepDiv.appendChild(matrixGrid);
         historyList.appendChild(stepDiv);
     });
 
@@ -544,24 +886,37 @@ function handleKeyNavigation(e) {
     const r = parseInt(this.dataset.r, 10);
     const c = parseInt(this.dataset.c, 10);
     
+    // Determine which container this input belongs to
+    const container = this.closest('.matrix-grid');
+    const containerId = container ? container.id : 'matrix-inputs';
+    
+    // Count rows and cols in this specific container
+    let maxR = 0, maxC = 0;
+    container.querySelectorAll('.matrix-cell-input').forEach(inp => {
+        maxR = Math.max(maxR, parseInt(inp.dataset.r, 10));
+        maxC = Math.max(maxC, parseInt(inp.dataset.c, 10));
+    });
+    const totalRows = maxR + 1;
+    const totalCols = maxC + 1;
+    
+    function focusCell(tr, tc) {
+        const target = container.querySelector(`.matrix-cell-input[data-r="${tr}"][data-c="${tc}"]`);
+        if (target) target.parentElement.click();
+    }
+    
     if (e.key === "Enter") {
         e.preventDefault();
         let targetR = r;
         let targetC = c + (e.shiftKey ? -1 : 1);
         
-        if (targetC >= matrixCols) {
-            targetC = 0;
-            targetR++;
-        } else if (targetC < 0) {
-            targetC = matrixCols - 1;
-            targetR--;
-        }
+        if (targetC >= totalCols) { targetC = 0; targetR++; }
+        else if (targetC < 0) { targetC = totalCols - 1; targetR--; }
 
-        if (targetR >= 0 && targetR < matrixRows) {
-            const targetInput = document.querySelector(`.matrix-cell[data-r="${targetR}"][data-c="${targetC}"]`);
-            if (targetInput) targetInput.parentElement.click();
-        } else if (targetR >= matrixRows && !e.shiftKey) { 
-             document.getElementById('btn-apply').focus();
+        if (targetR >= 0 && targetR < totalRows) {
+            focusCell(targetR, targetC);
+        } else if (targetR >= totalRows && !e.shiftKey) {
+            const applyBtn = document.getElementById('btn-apply');
+            if (applyBtn && !applyBtn.closest('.hidden')) applyBtn.focus();
         }
     } else if (["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"].includes(e.key)) {
         let targetR = r;
@@ -574,10 +929,9 @@ function handleKeyNavigation(e) {
         if (e.key === "ArrowLeft" && (isFullySelected || this.selectionStart === 0)) targetC--;
         if (e.key === "ArrowRight" && (isFullySelected || this.selectionEnd === this.value.length)) targetC++;
 
-        if (targetR >= 0 && targetR < matrixRows && targetC >= 0 && targetC < matrixCols) {
+        if (targetR >= 0 && targetR < totalRows && targetC >= 0 && targetC < totalCols) {
             e.preventDefault();
-            const targetInput = document.querySelector(`.matrix-cell[data-r="${targetR}"][data-c="${targetC}"]`);
-            if (targetInput) targetInput.parentElement.click();
+            focusCell(targetR, targetC);
         }
     }
 }
@@ -587,24 +941,22 @@ function handlePaste(e) {
     const pasteData = (e.clipboardData || window.clipboardData).getData('text');
     if (!pasteData) return;
 
-    // Parse rows separated by newline, cols separated by tab/comma/space
     const rows = pasteData.trim().split('\n').map(row => 
         row.trim().split(/[\t, ]+/).filter(val => val !== "")
     );
 
     const startR = parseInt(this.dataset.r, 10);
     const startC = parseInt(this.dataset.c, 10);
+    const container = this.closest('.matrix-grid') || document;
 
     for (let i = 0; i < rows.length; i++) {
         for (let j = 0; j < rows[i].length; j++) {
             let targetR = startR + i;
             let targetC = startC + j;
-            if (targetR >= 0 && targetR < matrixRows && targetC >= 0 && targetC < matrixCols) {
-                const targetInput = document.querySelector(`.matrix-cell[data-r="${targetR}"][data-c="${targetC}"]`);
-                if (targetInput) {
-                    targetInput.value = rows[i][j];
-                    targetInput.dispatchEvent(new Event("blur"));
-                }
+            const targetInput = container.querySelector(`.matrix-cell-input[data-r="${targetR}"][data-c="${targetC}"]`);
+            if (targetInput && !targetInput.disabled) {
+                targetInput.value = rows[i][j];
+                targetInput.dispatchEvent(new Event("blur"));
             }
         }
     }
@@ -617,6 +969,14 @@ btnAutoRef.addEventListener('click', () => {
 
 btnAutoRref.addEventListener('click', () => {
     autoReduceMatrix(true);
+});
+
+btnAutoLu.addEventListener('click', () => {
+    autoLU();
+});
+
+btnSplitMatrix.addEventListener('click', () => {
+    splitMatrix();
 });
 
 function autoReduceMatrix(toRref) {
@@ -720,12 +1080,120 @@ function autoReduceMatrix(toRref) {
         }
     }
 
-    if (stepsTaken === 0) {
+        if (stepsTaken === 0) {
         alert("The matrix is already in the target form!");
     } else {
         setMatrixToUI(newMatrix);
         hideHint();
     }
+}
+
+function autoLU() {
+    let matrix = getCurrentMatrix();
+    if (!matrix) return;
+
+    if (historyStates.length === 0) {
+        initialMatrixState = matrix.map(row => [...row]);
+    }
+
+    let U = matrix.map(row => [...row]);
+    let L = [];
+    for (let r = 0; r < matrixRows; r++) {
+        let row = [];
+        for (let c = 0; c < matrixCols; c++) {
+            row.push(r === c ? new Fraction(1, 1) : new Fraction(0, 1));
+        }
+        L.push(row);
+    }
+    
+    let stepsTaken = 0;
+
+    for (let j = 0; j < matrixCols; j++) {
+        // Find pivot
+        if (j >= matrixRows) break;
+        if (U[j][j].isZero()) {
+            // Check if we need to swap rows. Standard LU doesn't support row swaps without P matrix.
+            let found = false;
+            for (let i = j + 1; i < matrixRows; i++) {
+                if (!U[i][j].isZero()) found = true;
+            }
+            if (found) {
+                alert("Standard LU decomposition requires a row swap here, which implies a PA=LU decomposition. This validator currently computes standard LU only (no row swaps allowed).");
+                return;
+            } else {
+                continue; // Pivot is zero, but nothing below it either. Move to next column.
+            }
+        }
+
+        // Eliminate below
+        for (let i = j + 1; i < matrixRows; i++) {
+            if (!U[i][j].isZero()) {
+                let factor = U[i][j].div(U[j][j]); // The multiplier
+                L[i][j] = factor; // Store in L
+
+                let negativeFactor = factor.mult(new Fraction(-1, 1));
+                
+                for (let c = j; c < matrixCols; c++) { // Optimize: only need to update from col j onwards
+                    let addition = U[j][c].mult(negativeFactor);
+                    U[i][c] = U[i][c].add(addition);
+                }
+                
+                let op = { type: 'add', rTarget: i + 1, rSource: j + 1, scalar: negativeFactor };
+                addLUHistory(opToMath(op), L.map(row => [...row]), U.map(row => [...row]));
+                stepsTaken++;
+            }
+        }
+    }
+
+    if (stepsTaken === 0) {
+        alert("The matrix is already upper triangular (L is identity)!");
+    } else {
+        setMatrixToUI(U);
+        hideHint();
+    }
+}
+
+function addLUHistory(desc, L, U) {
+    historyStates.unshift({ desc, L, U, type: 'lu' });
+    renderHistory();
+}
+
+function splitMatrix() {
+    let matrix = getCurrentMatrix();
+    if (!matrix) return;
+
+    let rBoundaries = [0, ...Array.from(rowSplits).map(x => x + 1).sort((a,b)=>a-b), matrixRows];
+    let cBoundaries = [0, ...Array.from(colSplits).map(x => x + 1).sort((a,b)=>a-b), matrixCols];
+
+    let subMatrices = [];
+    for (let i = 0; i < rBoundaries.length - 1; i++) {
+        let rowChunks = [];
+        for (let j = 0; j < cBoundaries.length - 1; j++) {
+            let sub = [];
+            for (let r = rBoundaries[i]; r < rBoundaries[i+1]; r++) {
+                let row = [];
+                for (let c = cBoundaries[j]; c < cBoundaries[j+1]; c++) {
+                    row.push(matrix[r][c]);
+                }
+                sub.push(row);
+            }
+            rowChunks.push(sub);
+        }
+        subMatrices.push(rowChunks);
+    }
+
+    let bRows = rBoundaries.length - 1;
+    let bCols = cBoundaries.length - 1;
+
+    historyStates.unshift({ 
+        desc: `Partitioned into ${bRows}x${bCols} blocks`, 
+        matrix: matrix, 
+        type: 'split', 
+        bRows, 
+        bCols,
+        subMatrices 
+    });
+    renderHistory();
 }
 
 // Hint Engine
@@ -827,3 +1295,183 @@ function calculateNextHint(M) {
     
     return "The matrix is already fully simplified into Reduced Row Echelon Form (RREF)!";
 }
+
+// ==========================================
+// Matrix & Block Operations Logic
+// ==========================================
+
+function addMatrices(A, B) {
+    if (!A || !B || A.length !== B.length || A[0].length !== B[0].length) return null;
+    let C = [];
+    for (let r = 0; r < A.length; r++) {
+        let row = [];
+        for (let c = 0; c < A[0].length; c++) {
+            row.push(A[r][c].add(B[r][c]));
+        }
+        C.push(row);
+    }
+    return C;
+}
+
+function subMatrices(A, B) {
+    if (!A || !B || A.length !== B.length || A[0].length !== B[0].length) return null;
+    let C = [];
+    for (let r = 0; r < A.length; r++) {
+        let row = [];
+        for (let c = 0; c < A[0].length; c++) {
+            row.push(A[r][c].sub(B[r][c]));
+        }
+        C.push(row);
+    }
+    return C;
+}
+
+function multMatrices(A, B) {
+    if (!A || !B || A[0].length !== B.length) return null;
+    let C = [];
+    for (let r = 0; r < A.length; r++) {
+        let row = [];
+        for (let c = 0; c < B[0].length; c++) {
+            let sum = new Fraction(0, 1);
+            for (let k = 0; k < A[0].length; k++) {
+                sum = sum.add(A[r][k].mult(B[k][c]));
+            }
+            row.push(sum);
+        }
+        C.push(row);
+    }
+    return C;
+}
+
+function executeStandardOperation(opType) {
+    let A = getMatrixValues('matrix-a-inputs', matrixARows, matrixACols);
+    let B = getMatrixValues('matrix-b-inputs', matrixBRows, matrixBCols);
+    if (!A || !B) { alert('Could not read matrix values. Please make sure both matrices are generated.'); return; }
+
+    let C = null;
+    let desc = "";
+    if (opType === 'add') {
+        C = addMatrices(A, B);
+        desc = "Calculated A + B";
+    } else if (opType === 'sub') {
+        C = subMatrices(A, B);
+        desc = "Calculated A - B";
+    } else if (opType === 'mul') {
+        C = multMatrices(A, B);
+        desc = "Calculated A × B";
+    }
+
+    if (!C) {
+        alert("Dimensions mismatch for this operation!");
+        return;
+    }
+
+    historyStates.unshift({ desc: desc, matrix: C });
+    renderHistory();
+}
+
+function executeBlockOperation(opType) {
+    let A = getMatrixValues('matrix-a-inputs', matrixARows, matrixACols);
+    let B = getMatrixValues('matrix-b-inputs', matrixBRows, matrixBCols);
+    if (!A || !B) return;
+
+    let rBoundariesA = [0, ...Array.from(rowSplitsA).map(x => x + 1).sort((a,b)=>a-b), matrixARows];
+    let cBoundariesA = [0, ...Array.from(colSplitsA).map(x => x + 1).sort((a,b)=>a-b), matrixACols];
+    
+    let rBoundariesB = [0, ...Array.from(rowSplitsB).map(x => x + 1).sort((a,b)=>a-b), matrixBRows];
+    let cBoundariesB = [0, ...Array.from(colSplitsB).map(x => x + 1).sort((a,b)=>a-b), matrixBCols];
+
+    function extractSub(matrix, r1, r2, c1, c2) {
+        let sub = [];
+        for (let r = r1; r < r2; r++) {
+            let row = [];
+            for (let c = c1; c < c2; c++) {
+                row.push(matrix[r][c]);
+            }
+            sub.push(row);
+        }
+        return sub;
+    }
+
+    let subA = [];
+    for (let i = 0; i < rBoundariesA.length - 1; i++) {
+        let rowChunks = [];
+        for (let j = 0; j < cBoundariesA.length - 1; j++) {
+            rowChunks.push(extractSub(A, rBoundariesA[i], rBoundariesA[i+1], cBoundariesA[j], cBoundariesA[j+1]));
+        }
+        subA.push(rowChunks);
+    }
+
+    let subB = [];
+    for (let i = 0; i < rBoundariesB.length - 1; i++) {
+        let rowChunks = [];
+        for (let j = 0; j < cBoundariesB.length - 1; j++) {
+            rowChunks.push(extractSub(B, rBoundariesB[i], rBoundariesB[i+1], cBoundariesB[j], cBoundariesB[j+1]));
+        }
+        subB.push(rowChunks);
+    }
+
+    if (opType === 'mul') {
+        if (cBoundariesA.length !== rBoundariesB.length) {
+            alert("Block multiplication failed: The column partition of A does not match the row partition of B.");
+            return;
+        }
+        // Also check if inner dimensions of blocks match
+        for (let k = 0; k < cBoundariesA.length - 1; k++) {
+            let colsAk = cBoundariesA[k+1] - cBoundariesA[k];
+            let rowsBk = rBoundariesB[k+1] - rBoundariesB[k];
+            if (colsAk !== rowsBk) {
+                alert(`Block inner dimensions mismatch at partition ${k+1}! Columns of A_ik (${colsAk}) != Rows of B_kj (${rowsBk}).`);
+                return;
+            }
+        }
+
+        let subC = [];
+        let rBoundariesC = [...rBoundariesA];
+        let cBoundariesC = [...cBoundariesB];
+        let C = [];
+
+        // Build result matrix and block step details
+        let steps = [];
+
+        for (let i = 0; i < subA.length; i++) {
+            let rowChunksC = [];
+            let flatRowsC = [];
+            for(let r=0; r < rBoundariesC[i+1]-rBoundariesC[i]; r++) flatRowsC.push([]);
+            
+            for (let j = 0; j < subB[0].length; j++) {
+                let sumBlock = null;
+                let stepTerms = [];
+                for (let k = 0; k < subA[0].length; k++) {
+                    let prod = multMatrices(subA[i][k], subB[k][j]);
+                    stepTerms.push(`A_{${i+1}${k+1}}B_{${k+1}${j+1}}`);
+                    if (!sumBlock) sumBlock = prod;
+                    else sumBlock = addMatrices(sumBlock, prod);
+                }
+                rowChunksC.push(sumBlock);
+                steps.push(`$$ C_{${i+1}${j+1}} = ${stepTerms.join(' + ')} $$`);
+                
+                // assemble flat rows
+                for(let r=0; r < sumBlock.length; r++) {
+                    flatRowsC[r] = flatRowsC[r].concat(sumBlock[r]);
+                }
+            }
+            subC.push(rowChunksC);
+            C = C.concat(flatRowsC);
+        }
+
+        let desc = "Block Multiplication A × B:<br>" + steps.join("");
+        
+        let newRowSplits = new Set();
+        let newColSplits = new Set();
+        for(let i=1; i<rBoundariesC.length-1; i++) newRowSplits.add(rBoundariesC[i]-1);
+        for(let j=1; j<cBoundariesC.length-1; j++) newColSplits.add(cBoundariesC[j]-1);
+
+        historyStates.unshift({ desc: desc, matrix: C, rowSplits: newRowSplits, colSplits: newColSplits });
+        renderHistory();
+    } else {
+        alert("Block Add/Sub is straightforward if partitions match perfectly. Try standard operation or implement custom block add/sub!");
+    }
+}
+
+// (operation button listeners are registered in DOMContentLoaded)
